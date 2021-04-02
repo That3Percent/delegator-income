@@ -8,6 +8,7 @@ mod grt;
 mod queries;
 mod task;
 
+use grt::two_dec;
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -33,12 +34,24 @@ fn main() {
     let changes = data_collection::get_changes(&delegator_ids[..]);
 
     println!("Burns:");
+    println!("Block,GRT,Dollars");
     for burn in changes.burns.iter() {
-        println!("  {}: {}", burn.block, burn.amount);
+        println!(
+            "{},-{},-${}",
+            burn.block,
+            burn.amount,
+            two_dec(&burn.dollars)
+        );
     }
 
-    println!("Rewards: ");
+    println!("Rewards:");
+    println!("Block,GRT,Dollars");
     for reward in changes.rewards.iter() {
-        println!("  {}: {}", reward.block, reward.amount);
+        println!(
+            "{},{},${}",
+            reward.block,
+            reward.amount,
+            two_dec(&reward.dollars)
+        );
     }
 }

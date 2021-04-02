@@ -21,12 +21,7 @@ fn _get_changes(
     // If the block range is reduced to 1,
     // we have found the exact block this change occurs at.
     if end.block_number == start.block_number + 1 {
-        diff_delegators(
-            delegations_start,
-            delegations_end,
-            end.block_number,
-            changes,
-        );
+        diff_delegators(delegations_start, delegations_end, end, changes);
         return true;
     }
 

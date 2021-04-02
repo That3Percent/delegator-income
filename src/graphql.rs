@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Deserialize};
 use std::{collections::HashMap, thread::sleep};
 use std::{error::Error, fs, time::Duration};
 
-const REQUEST_CONCURRENCY: usize = 10;
+const REQUEST_CONCURRENCY: usize = 12;
 
 lazy_static! {
     static ref CLIENT: Semaphore<Client> = Semaphore::new(REQUEST_CONCURRENCY, Client::new());
@@ -31,7 +31,7 @@ fn retry<F: Fn() -> Result<O, E>, E: std::fmt::Display + std::fmt::Debug, O>(f: 
         if let Ok(v) = v {
             return v;
         }
-        //print!(".");
+        print!(".");
         sleep(Duration::from_secs(i));
     }
     f().unwrap()
@@ -41,36 +41,36 @@ fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error
     serde_json::from_slice::<Response<T>>(&bytes).map(|r| r.data)
 }
 
-fn graphql_query_bytes(graphql: &str) -> Vec<u8> {
+fn graphql_query_bytes(graphql: &str, subgraph: &str) -> Vec<u8> {
     let mut json = HashMap::new();
     json.insert("query", graphql);
+    let url = format!("https://api.thegraph.com/subgraphs/name/{}", subgraph);
     retry::<_, Box<dyn Error>, _>(|| {
         with_client(|client| {
-            let response = client
-                .post("https://gateway.network.thegraph.com/network")
-                .json(&json)
-                .send()?;
+            let response = client.post(&url).json(&json).send()?;
             let bytes = response.bytes()?;
             Ok(bytes.to_vec())
         })
     })
 }
 
-pub fn cached_graphql_query<T>(graphql: &str) -> T
+pub fn cached_graphql_query<T>(graphql: &str, subgraph_name: &str) -> T
 where
     T: DeserializeOwned,
 {
     let mut hasher = blake3::Hasher::new();
+    hasher.update(subgraph_name.as_bytes());
     hasher.update(graphql.as_bytes());
     let hash = hasher.finalize();
     let hash = hash.to_hex();
+    let hash = &hash[0..24];
     let path = format!("./cache/{}.json", hash);
 
     match fs::read(&path) {
         Ok(s) => deserialize(&s).unwrap(),
         Err(_) => {
             let (response, deser) = retry(|| {
-                let response = graphql_query_bytes(graphql);
+                let response = graphql_query_bytes(graphql, subgraph_name);
                 // Validate before caching.
                 // This prevents intermittent issues from
                 // being cached.
@@ -82,9 +82,9 @@ where
     }
 }
 
-pub fn graphql_query<T>(graphql: &str) -> T
+pub fn graphql_query<T>(graphql: &str, subgraph: &str) -> T
 where
     T: DeserializeOwned,
 {
-    retry(|| deserialize(&graphql_query_bytes(graphql)))
+    retry(|| deserialize(&graphql_query_bytes(graphql, subgraph)))
 }

@@ -26,7 +26,8 @@ pub fn epochs() -> Vec<Epoch> {
         }}"#,
     );
 
-    let mut epoches = graphql_query::<EpochData>(&query).epoches;
+    let mut epoches =
+        graphql_query::<EpochData>(&query, "graphprotocol/graph-network-mainnet").epoches;
     epoches.sort_by_key(|e| {
         let v: u32 = e.id.parse().unwrap();
         v
@@ -57,7 +58,25 @@ pub fn delegators(ids: &[&str], block_number: u64) -> Vec<Delegator> {
         ids, block_number
     );
 
-    cached_graphql_query::<DelegatorsData>(&query).delegators
+    cached_graphql_query::<DelegatorsData>(&query, "graphprotocol/graph-network-mainnet").delegators
+}
+
+pub fn pair(block_number: u64) -> Pair {
+    let query = format!(
+        r#"{{
+            pair(id: "0xdfa42ba0130425b21a1568507b084cc246fb0c8f", block: {{ number: {} }}) {{
+                token0Price
+            }}
+        }}"#,
+        block_number
+    );
+
+    cached_graphql_query::<PairData>(&query, "uniswap/uniswap-v2").pair
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Pair {
+    pub token0Price: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +87,11 @@ struct DelegatorData {
 #[derive(Debug, Deserialize)]
 struct DelegatorsData {
     delegators: Vec<Delegator>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PairData {
+    pair: Pair,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -97,6 +121,16 @@ impl Stake {
         let total = staked.clone() / non_burned;
         total - staked
     }
+    pub fn current_value(&self) -> GRT {
+        let exchange_rate: BigDecimal = self.indexer.delegation_exchange_rate.parse().unwrap();
+        let share_amount: GRT = self.share_amount.parse().unwrap();
+        share_amount * exchange_rate
+    }
+    pub fn gains(&self) -> GRT {
+        let value = self.current_value();
+        let staked = self.staked_grt();
+        value - staked
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -108,10 +142,11 @@ pub struct Indexer {
     pub delegation_exchange_rate: String,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct DelegationTask {
     pub block_number: u64,
     pub delegator_ids: &'static [&'static str],
+    pub pair: Task<Pair>,
 }
 
 impl TaskSource for DelegationTask {
@@ -130,9 +165,30 @@ impl DelegationTask {
         let task = DelegationTask {
             block_number,
             delegator_ids,
+            pair: PairsTask::create(block_number),
         };
         Task::new(task)
     }
 }
 
 pub type CachedDelegation = Task<(DelegationTask, Vec<Delegator>)>;
+
+#[derive(Clone, Copy)]
+pub struct PairsTask {
+    pub block_number: u64,
+}
+
+impl TaskSource for PairsTask {
+    type Output = Pair;
+
+    fn execute(&self) -> Self::Output {
+        pair(self.block_number)
+    }
+}
+
+impl PairsTask {
+    pub fn create(block_number: u64) -> Task<Pair> {
+        let task = PairsTask { block_number };
+        Task::new(task)
+    }
+}

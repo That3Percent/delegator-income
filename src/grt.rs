@@ -1,10 +1,16 @@
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use std::fmt;
 use std::ops::{Div, Mul, Sub};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GRT(BigDecimal);
+pub struct GRT(pub BigDecimal);
+
+impl GRT {
+    pub fn zero() -> GRT {
+        GRT(BigDecimal::zero())
+    }
+}
 
 impl FromStr for GRT {
     type Err = ();
@@ -15,15 +21,20 @@ impl FromStr for GRT {
     }
 }
 
+pub fn two_dec(value: &BigDecimal) -> String {
+    let num = format!("{}", value);
+    // Calling BigDecimal::round panics. So truncate.
+    let mut num = num.as_str();
+    if let Some(idx) = num.find(".") {
+        num = &num[0..(num.len().min(idx + 4))];
+    }
+    format!("{}", num)
+}
+
 impl fmt::Display for GRT {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let num = format!("{}", self.0);
-        // Calling BigDecimal::round panics. So truncate.
-        let mut num = num.as_str();
-        if let Some(idx) = num.find(".") {
-            num = &num[0..(num.len().min(idx + 4))];
-        }
-        write!(f, "{} GRT", num)
+        let num = two_dec(&self.0);
+        write!(f, "{}", num)
     }
 }
 

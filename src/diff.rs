@@ -1,5 +1,6 @@
 use crate::grt::*;
 use crate::queries::*;
+use bigdecimal::BigDecimal;
 use single::Single as _;
 use std::sync::{Arc, Mutex};
 
@@ -7,6 +8,35 @@ use std::sync::{Arc, Mutex};
 pub struct BlockDiff {
     pub block: u64,
     pub amount: GRT,
+    pub dollars: BigDecimal,
+}
+
+fn push_block_diff(
+    changes: &Arc<Mutex<Changes>>,
+    property: impl Fn(&mut Changes) -> &mut Vec<BlockDiff>,
+    block: &DelegationTask,
+    amount: GRT,
+) {
+    // At the time of writing even at the all-time high value of GRT
+    // this would be a fraction of a penny. Filtering here removes reporting
+    // of some silly things like negative gains due to rounding when tokens
+    // were burned, or collections of miniscule query fees.
+    // This is 0.0001 GRT
+    let min: GRT = "100000000000000".parse().unwrap();
+    if amount < min {
+        return;
+    }
+
+    let exchange_rate: BigDecimal = block.pair.get().token0Price.parse().unwrap();
+
+    let diff = BlockDiff {
+        block: block.block_number,
+        amount: amount.clone(),
+        dollars: amount.0 * exchange_rate,
+    };
+    let mut changes = changes.lock().unwrap();
+    let collection = property(&mut changes);
+    collection.push(diff);
 }
 
 #[derive(Debug, Default)]
@@ -18,7 +48,7 @@ pub struct Changes {
 pub fn diff_delegators(
     before: &[Delegator],
     after: &[Delegator],
-    block: u64,
+    block: &DelegationTask,
     changes: &Arc<Mutex<Changes>>,
 ) {
     diff_set_by_id(
@@ -34,7 +64,7 @@ pub fn diff_delegators(
 fn diff_delegator(
     before: &Delegator,
     after: &Delegator,
-    block: u64,
+    block: &DelegationTask,
     changes: &Arc<Mutex<Changes>>,
 ) {
     assert_eq!(&before.id, &after.id);
@@ -49,43 +79,48 @@ fn diff_delegator(
     )
 }
 
-fn add_delegator(delegator: &Delegator, block: u64, changes: &Arc<Mutex<Changes>>) {
+fn add_delegator(delegator: &Delegator, block: &DelegationTask, changes: &Arc<Mutex<Changes>>) {
     for stake in delegator.stakes.iter() {
         add_stake(stake, block, changes)
     }
 }
 
-fn remove_delegator(_delegator: &Delegator, _block: u64, _changes: &Arc<Mutex<Changes>>) {
+fn remove_delegator(
+    _delegator: &Delegator,
+    _block: &DelegationTask,
+    _changes: &Arc<Mutex<Changes>>,
+) {
     todo!("remove delegator")
 }
 
-fn add_stake(stake: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
-    let burned = stake.burned_grt();
-    let mut changes = changes.lock().unwrap();
-    changes.burns.push(BlockDiff {
-        block,
-        amount: burned,
-    });
-    // TODO: Check if there were rewards in this block
+fn add_stake(stake: &Stake, block: &DelegationTask, changes: &Arc<Mutex<Changes>>) {
+    push_block_diff(changes, |c| &mut c.burns, block, stake.burned_grt());
+    push_block_diff(changes, |c| &mut c.rewards, block, stake.gains());
 }
 
-fn remove_stake(stake: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
+fn remove_stake(stake: &Stake, block: &DelegationTask, changes: &Arc<Mutex<Changes>>) {
     todo!()
 }
 
-fn diff_stake(before: &Stake, after: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
-    let burned_before = before.burned_grt();
-    let burned_after = after.burned_grt();
-    assert!(burned_after >= burned_before);
-    if burned_after > burned_before {
-        let burned_delta = burned_after - burned_before;
-        let mut changes = changes.lock().unwrap();
-        changes.burns.push(BlockDiff {
-            block,
-            amount: burned_delta,
-        });
-    }
-    // TODO: Check for rewards
+fn diff_stake(
+    before: &Stake,
+    after: &Stake,
+    block: &DelegationTask,
+    changes: &Arc<Mutex<Changes>>,
+) {
+    push_block_diff(
+        changes,
+        |c| &mut c.burns,
+        block,
+        after.burned_grt() - before.burned_grt(),
+    );
+
+    push_block_diff(
+        changes,
+        |c| &mut c.rewards,
+        block,
+        after.gains() - before.gains(),
+    );
 }
 
 fn diff_set_by_id<FA: Fn(&T), FR: Fn(&T), FD: Fn(&T, &T), T>(
