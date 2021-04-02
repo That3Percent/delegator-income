@@ -1,5 +1,6 @@
-use crate::graphql::*;
 use crate::task::*;
+use crate::{graphql::*, grt::GRT};
+use bigdecimal::BigDecimal;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +84,19 @@ pub struct Stake {
     pub staked_tokens: String,
     pub indexer: Indexer,
     pub id: String,
+}
+
+impl Stake {
+    pub fn staked_grt(&self) -> GRT {
+        self.staked_tokens.parse().unwrap()
+    }
+    pub fn burned_grt(&self) -> GRT {
+        // total * 0.995 = stake.staked_tokens
+        let staked = self.staked_grt();
+        let non_burned: BigDecimal = "0.995".parse().unwrap();
+        let total = staked.clone() / non_burned;
+        total - staked
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]

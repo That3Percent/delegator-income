@@ -63,5 +63,10 @@ pub fn get_changes(delegator_ids: &'static [&'static str]) -> Changes {
     });
 
     let mut lock = changes.lock().unwrap();
-    std::mem::replace(&mut *lock, Default::default())
+    let mut changes = std::mem::replace(&mut *lock, Default::default());
+
+    changes.burns.sort_by_key(|b| b.block);
+    changes.rewards.sort_by_key(|b| b.block);
+
+    changes
 }

@@ -60,7 +60,13 @@ fn remove_delegator(_delegator: &Delegator, _block: u64, _changes: &Arc<Mutex<Ch
 }
 
 fn add_stake(stake: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
-    todo!()
+    let burned = stake.burned_grt();
+    let mut changes = changes.lock().unwrap();
+    changes.burns.push(BlockDiff {
+        block,
+        amount: burned,
+    });
+    // TODO: Check if there were rewards in this block
 }
 
 fn remove_stake(stake: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
@@ -68,7 +74,18 @@ fn remove_stake(stake: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
 }
 
 fn diff_stake(before: &Stake, after: &Stake, block: u64, changes: &Arc<Mutex<Changes>>) {
-    todo!()
+    let burned_before = before.burned_grt();
+    let burned_after = after.burned_grt();
+    assert!(burned_after >= burned_before);
+    if burned_after > burned_before {
+        let burned_delta = burned_after - burned_before;
+        let mut changes = changes.lock().unwrap();
+        changes.burns.push(BlockDiff {
+            block,
+            amount: burned_delta,
+        });
+    }
+    // TODO: Check for rewards
 }
 
 fn diff_set_by_id<FA: Fn(&T), FR: Fn(&T), FD: Fn(&T, &T), T>(
